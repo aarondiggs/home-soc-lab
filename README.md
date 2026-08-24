@@ -75,6 +75,8 @@ Each VM was provisioned using the following process in VMware Workstation Pro:
 ### Notes on Windows 11 Provisioning
 Windows 11 enforces a Microsoft account requirement during the Out of Box Experience (OOBE) by default. In a lab environment, a local account is preferred to avoid unnecessary Microsoft account integration. To bypass this, the VM's network adapter was temporarily disconnected in VMware Workstation settings prior to OS installation. With no network connectivity available, Windows proceeds through the OOBE without enforcing the Microsoft account requirement, allowing local account creation.
 
+---
+
 ## Section 2: Deploying Wazuh
 
 ### Objective
@@ -137,4 +139,45 @@ Log in using the admin credentials saved during installation.
 
 ![Image of Wazuh Dashboard](https://github.com/aarondiggs/home-soc-lab/blob/main/images/Wazuh%20Dashboard%20-%20First%20Access.png)
 
+---
 
+## Section 3: Enrolling Endpoints
+
+### Objective
+Install and configure Wazuh agents on both target endpoints so the SIEM server begins receiving security telemetry from each machine.
+
+### Deploying the Wazuh Agent - Ubuntu Endpoint
+
+**1. Generate the install command from the Wazuh dashboard**
+
+In the Wazuh dashboard, navigate to **Deploy a New Agent**. Select **Linux** as the operating system and **amd64** as the architecture. Enter the SIEM Server's IP address as the server address and assign a name to the agent (e.g., `ubuntu-victim`). The dashboard generates a set of install commands pre-configured for the environment. Paste and run the generated commands in the terminal on the Ubuntu endpoint.
+
+**2. Start the Wazuh agent**
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable wazuh-agent
+sudo systemctl start wazuh-agent
+```
+
+**3. Verify in the dashboard**
+
+Refresh the Wazuh dashboard. The Ubuntu endpoint should appear as "**Active**" in the Agents section within a few minutes.
+
+### Deploying the Wazuh Agent - Windows Endpoint
+
+**1. Generate the install command from the Wazuh dashboard**
+
+Repeat the same process in the dashboard, selecting **Windows** as the operating system. The dashboard generates a PowerShell command pre-configured for the environment. Paste and run the generated PowerShell command.
+
+**2. Start the Wazuh agent**
+
+```powershell
+NET START WazuhSvc
+```
+
+**3. Verify in the dashboard**
+
+Both endpoints should now appear as **Active** in the Wazuh Agents section.
+
+![Image of Wazuh Dashboard with both endpoints active](https://github.com/aarondiggs/home-soc-lab/blob/main/images/Wazuh%20Dashboard%20-%20After%20Endpoints%20Deployed.png)
