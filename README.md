@@ -238,3 +238,74 @@ Restart-Service WazuhSvc
 Sysmon telemetry was verified by navigating to **Threat Hunting** in the Wazuh dashboard and selecting the Windows agent. On this page, there is a graph titled "Top 10 Alert groups evolution." On the right side of this graph, the log sources are listed. As seen in the image below, "sysmon" is on this list.
 
 ![Image of the Wazuh Threat Hunting dashboard, showing "sysmon" in the list of alert groups](https://github.com/aarondiggs/home-soc-lab/blob/main/images/Sysmon%20Wazuh.png)
+
+---
+
+## Section 5: Vulnerability Management
+
+### Objective
+Perform vulnerability scans on both endpoints using Wazuh's built-in vulnerability detection module, triage findings by severity, remediate when possible, and document risk acceptance decisions for findings that cannot be immediately resolved.
+
+### Ubuntu Endpoint
+
+#### Initial Scan Results
+![Ubuntu Vulnerability Scan 2](https://github.com/aarondiggs/home-soc-lab/blob/main/images/Ubuntu%20Vulnerability%20Scan%202.png)
+
+The initial scan against the Ubuntu endpoint returned a significant number of findings, the majority attributed to the Linux kernel packages (`linux-image-7.0.0-29-generic` and `linux-image-7.0.0-30-generic`).
+
+#### Remediation Steps
+
+**1. Update all packages**
+
+```bash
+sudo apt update && sudo apt full-upgrade -y
+sudo reboot
+```
+
+**2. Remove unused kernel**
+
+Following the update, two kernel versions were present on the system. As only `linux-image-7.0.0-30-generic` was active, the older `linux-image-7.0.0-29-generic` was removed to reduce attack surface:
+
+```bash
+sudo apt remove --purge linux-image-7.0.0-29-generic -y
+sudo apt autoremove --purge -y
+sudo reboot
+```
+
+This removal eliminated approximately half of the total findings, as each kernel package was contributing equally to the vulnerability count.
+
+#### Post-Remediation Results
+![Ubuntu Vulnerability Scan 3](https://github.com/aarondiggs/home-soc-lab/blob/main/images/Ubuntu%20Vulnerability%20Scan%203.png)
+
+#### Remaining Findings
+The remaining findings are attributed entirely to `linux-image-7.0.0-30-generic` — the active running kernel. As the active kernel cannot be removed, these findings represent the current unpatched attack surface pending upstream kernel patches. This was documented as accepted risk with the following rationale:
+
+- No patches are currently available in Ubuntu's repositories for the affected kernel version
+- The system is a lab VM with no exposure to untrusted networks
+- Findings will be re-evaluated as patches become available
+
+---
+
+### Windows Endpoint
+
+#### Initial Scan Results
+![Windows Vulnerability Dashboard](https://github.com/aarondiggs/home-soc-lab/blob/main/images/Windows%20Vulnerability%20Scan.png)
+
+#### CVE-2026-45585 (YellowKey)
+
+| Field              | Detail                   |
+| ------------------ | ------------------------ |
+| CVE ID             | CVE-2026-45585           |
+| Severity           | Medium (CVSS: 6.8)       |
+| Affected Component | Windows BitLocker        |
+| Attack Vector      | Physical access required |
+| Patch Available    | Yes (KB5094126)          |
+
+CVE-2026-45585, known as YellowKey, is a security feature bypass vulnerability affecting Windows BitLocker. It was disclosed by a researcher known as Nightmare Eclipse, with a proof-of-concept published on May 13, 2026, prompting Microsoft to publish an advisory on May 19, 2026. The patch `KB5094126` addresses the vulnerability.
+
+**Remediation:** The system was confirmed to be running build 26200.9168, which is above the patched build threshold of 26200.8655 introduced by KB5094126. The patch was therefore already applied.
+
+**False Positive**: Despite the patch being applied, CVE-2026-45585 continued to appear in the Wazuh vulnerability inventory. With no other explanation for the vulnerability scan triggering this detection, it's likely a false positive.
+
+![Windows Version](https://github.com/aarondiggs/home-soc-lab/blob/main/images/winver.png)
+
