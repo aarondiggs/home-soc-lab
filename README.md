@@ -181,3 +181,60 @@ NET START WazuhSvc
 Both endpoints should now appear as **Active** in the Wazuh Agents section.
 
 ![Image of Wazuh Dashboard with both endpoints active](https://github.com/aarondiggs/home-soc-lab/blob/main/images/Wazuh%20Dashboard%20-%20After%20Endpoints%20Deployed.png)
+
+---
+
+## Section 4: Enhancing Windows Telemetry with Sysmon
+
+### Objective
+Install Sysmon on the Windows endpoint to provide enriched telemetry to Wazuh beyond what default Windows Event Logging offers.
+
+### Why Sysmon?
+Wazuh is an XDR/SIEM platform, but it is only as effective as the telemetry it receives. Default Windows Event Logging lacks the granularity needed for effective threat detection (process creation events, for example, omit command-line arguments and parent-child process relationships that are critical for identifying malicious behavior.)
+
+Sysmon (System Monitor) is a Windows system service and device driver from the Microsoft Sysinternals suite that addresses this gap by generating significantly richer endpoint telemetry, including:
+
+- Full command-line arguments for every process created
+- Parent-child process relationships
+- Network connections per process
+- File creation events with cryptographic hashes
+- Registry modifications
+
+Wazuh ingests this data via the Sysmon event log channel (`Microsoft-Windows-Sysmon/Operational`). Sysmon acts as a more detailed data source that enables Wazuh to detect sophisticated attack techniques that would otherwise go unnoticed.
+
+### Installation
+
+**1. Download Sysmon and the SwiftOnSecurity configuration**
+
+- [Sysmon](https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon)
+- [SwiftOnSecurity config](https://github.com/SwiftOnSecurity/sysmon-config)
+
+The SwiftOnSecurity configuration is a community-maintained baseline ruleset widely used in the security industry. It balances detection coverage with log noise reduction, making it a practical starting point for a lab environment.
+
+**2. Install Sysmon with the configuration**
+
+```powershell
+sysmon64.exe -accepteula -i sysmonconfig-export.xml
+```
+
+**3. Configure Wazuh to ingest Sysmon logs**
+
+Open `C:\Program Files (x86)\ossec-agent\ossec.conf` and add the following block inside the `<ossec_config>` tags:
+
+```xml
+<localfile>
+  <location>Microsoft-Windows-Sysmon/Operational</location>
+  <log_format>eventchannel</log_format>
+</localfile>
+```
+
+**4. Restart the Wazuh agent**
+
+```powershell
+Restart-Service WazuhSvc
+```
+
+### Verification
+Sysmon telemetry was verified by navigating to **Threat Hunting** in the Wazuh dashboard and selecting the Windows agent. On this page, there is a graph titled "Top 10 Alert groups evolution." On the right side of this graph, the log sources are listed. As seen in the image below, "sysmon" is on this list.
+
+![Image of the Wazuh Threat Hunting dashboard, showing "sysmon" in the list of alert groups](https://github.com/aarondiggs/home-soc-lab/blob/main/images/Sysmon%20Wazuh.png)
