@@ -309,3 +309,121 @@ CVE-2026-45585, known as YellowKey, is a security feature bypass vulnerability a
 
 ![Windows Version](https://github.com/aarondiggs/home-soc-lab/blob/main/images/winver.png)
 
+---
+
+## Section 6: Attack Simulation (SSH Brute Force)
+
+### Objective
+Simulate a brute force attack against the Ubuntu endpoint using Hydra from the Kali attacker machine, and observe Wazuh's detection capability against MITRE ATT&CK technique T1110 (Brute Force.)
+
+### Background
+Brute force attacks are one of the most common techniques used by threat actors to gain unauthorized access to systems. By repeatedly attempting credentials against an authentication service, an attacker can eventually discover valid credentials if no lockout or rate-limiting controls are in place. This simulation demonstrates how Wazuh detects this behavior through SSH authentication log analysis.
+
+### Environment
+
+| Machine                     | IP Address     | Role                                             |
+| --------------------------- | -------------- | ------------------------------------------------ |
+| Kali Linux (Attacker)       | 192.168.31.137 | Simulated adversary (runs Hydra)                 |
+| Ubuntu Desktop (Endpoint 1) | 192.168.31.135 | Target (exposed SSH service)                     |
+| SIEM Server (Wazuh)         | 192.168.31.134 | Detects authentication failures and fires alerts |
+
+### Steps
+
+**1. Confirm SSH is running on the Ubuntu endpoint**
+
+SSH was installed and enabled on the Ubuntu Desktop endpoint prior to the simulation:
+
+```bash
+sudo apt install openssh-server -y
+sudo systemctl enable ssh
+sudo systemctl start ssh
+```
+
+Connectivity was verified from the Kali machine:
+
+```bash
+nc -v 192.168.31.135 22
+```
+
+**2. Create a targeted wordlist on the Kali machine**
+
+A small wordlist was created on the Kali attacker machine containing common passwords followed by the correct credential, ensuring Hydra would produce both failed and successful authentication attempts (generating the full attack pattern in Wazuh):
+
+```bash
+echo -e "password\n123456\nadmin\nletmein\nqwerty\n<password>" > /tmp/passwords.txt
+```
+
+In a real-world attack, a threat actor would typically use a much larger wordlist such as `rockyou.txt` (14 million entries). A smaller list was crafted here to keep the simulation concise while still producing meaningful telemetry.
+
+**3. Run the brute force attack**
+
+Hydra was run against the Ubuntu endpoint's SSH service with a single thread (`-t 1`) to avoid triggering SSH's connection rate limiting, which causes connection errors:
+
+```bash
+hydra -l ubuntuv -P /tmp/passwords.txt ssh://192.168.31.135 -t 1
+```
+
+Hydra attempted 6 login tries and successfully identified the valid credential on the final attempt, completing the attack between 16:07:35 and 16:07:50.
+
+![Image displays Hydra scan results](https://github.com/aarondiggs/home-soc-lab/blob/main/images/Hydra%20scan.png)
+
+**4. Observe detection in Wazuh**
+
+The Threat Hunting module in the Wazuh dashboard was used to monitor events on the ubuntu-victim agent during the attack. The event timeline showed a clear pattern of authentication failures followed by a successful login, correlating directly with Hydra's output.
+
+![Wazuh Threat Hunting dashboard, showcasing the alerts of the attack. Filtered to show only Ubuntu logs.](https://github.com/aarondiggs/home-soc-lab/blob/main/images/Threat%20Hunting%20-%20Ubuntu%20Kali%20Hydra.png)
+
+### Findings
+
+Two distinct rules fired during the simulation:
+
+**Rule 5760 (sshd): authentication failed**
+
+| Field           | Detail                              |
+| --------------- | ----------------------------------- |
+| Rule ID         | 5760                                |
+| Rule Level      | 5                                   |
+| Description     | sshd: authentication failed         |
+| Log Source      | journald (sshd-session)             |
+| Rule Groups     | syslog, sshd, authentication_failed |
+| MITRE Technique | T1110.001 (Password Guessing)       |
+| MITRE Tactic    | Credential Access, Lateral Movement |
+| Source IP       | 192.168.31.137 (Kali attacker)      |
+| Target User     | ubuntuv                             |
+| Fired Times     | 5                                   |
+
+This rule fired once for each failed authentication attempt. The full log entry confirmed the source IP, target username, and timestamp for each attempt, providing a clear trail of the attack.
+
+![Shows the expanded alert for sshd: authentication failed.](https://github.com/aarondiggs/home-soc-lab/blob/main/images/Threat%20Hunting%20-%20sshd%20alert%20failed%20password.png)
+
+**Rule 5715 (sshd): authentication success**
+
+| Field           | Detail                                                                               |
+| --------------- | ------------------------------------------------------------------------------------ |
+| Rule ID         | 5715                                                                                 |
+| Rule Level      | 3                                                                                    |
+| Description     | sshd: authentication success                                                         |
+| Log Source      | journald (sshd-session)                                                              |
+| Rule Groups     | syslog, sshd, authentication_success                                                 |
+| MITRE Technique | T1078 (Valid Accounts), T1021 (Remote Services)                                      |
+| MITRE Tactic    | Defense Evasion, Persistence, Privilege Escalation, Initial Access, Lateral Movement |
+| Source IP       | 192.168.31.137 (Kali attacker)                                                       |
+| Target User     | ubuntuv                                                                              |
+
+Rule 5715 fired one second after the final authentication failure, confirming successful access was obtained immediately following the brute force sequence.
+
+![Shows the expanded alert for sshd: authentication success.](https://github.com/aarondiggs/home-soc-lab/blob/main/images/Threat%20Hunting%20-%20sshd%20alert.png)
+
+### Observations
+
+**Rule 5763 (Multiple Authentication Failures) did not fire**
+
+Wazuh's aggregation rule for multiple authentication failures (5763) was not triggered during this simulation. This is likely because the single-threaded attack (`-t 1`) spaced attempts far enough apart that they fell outside the rule's time window threshold. This is a notable finding (it demonstrates that low-and-slow brute force attacks can evade threshold-based detection rules while still being visible in individual event logs. This gap is addressed in Section 7, where a custom detection rule is developed to improve coverage of this scenario.)
+
+**SSH rate limiting behavior**
+
+During initial testing, running Hydra with multiple concurrent threads (`-t 4`) caused SSH's connection rate limiting to reject connections entirely, producing connection errors rather than authentication failure events. Reducing to a single thread (`-t 1`) resolved this. From a defensive perspective, SSH rate limiting provides meaningful protection against high-speed brute force attempts, but does not prevent slower, more deliberate attacks (reinforcing the need for properly tuned detection rules.)
+
+---
+
+## Section 7: Detection Engineering
