@@ -427,3 +427,65 @@ During initial testing, running Hydra with multiple concurrent threads (`-t 4`) 
 ---
 
 ## Section 7: Detection Engineering
+
+### Objective
+Develop custom Wazuh detection rules to address a gap identified during the brute force simulation in Section 6 (specifically, that Wazuh's built-in aggregation rule (5763) did not fire against the low-and-slow attack pattern produced by Hydra running at single-thread concurrency.) The goal is to write rules that correctly detect this pattern and demonstrate detection engineering as a core SOC analyst skill.
+
+### Background
+Wazuh ships with thousands of built-in detection rules covering a wide range of attack patterns. However, built-in rules are designed around general assumptions about attack behavior (they cannot account for every environment or attack pattern.) Detection engineering is the practice of writing and tuning custom rules to close gaps in coverage based on observed threats.
+
+In this case, the built-in rule 5763 (Multiple Authentication Failures) did not fire during the brute force simulation because the single-threaded attack spaced authentication attempts far enough apart to fall outside the rule's detection threshold. The custom rules developed in this section address this gap directly, using thresholds tuned to the observed attack pattern.
+
+Custom rules in Wazuh are written in XML and are stored in `/var/ossec/etc/rules/local_rules.xml`. This file is separate from Wazuh's built-in ruleset, ensuring custom rules persist across Wazuh updates without being overwritten.
+
+### Rule Design
+
+Two rules were created to implement a detection chain:
+
+**Rule 100001** acts as an intermediary (it fires on every SSH authentication failure (inheriting from built-in rule 5760) and tags it with the appropriate MITRE ATT&CK technique.) This gives rule 100002 a clean, labeled event to count against.
+
+**Rule 100002** is the aggregation rule (it fires when 5 or more instances of rule 100001 are observed from the same source IP within a 30-second window.) The threshold of 5 failures in 30 seconds was derived directly from the observed behavior of the brute force simulation in Section 6.
+
+### Implementation
+
+**1. Open the custom rules file on the SIEM Server**
+
+```bash
+sudo nano /var/ossec/etc/rules/local_rules.xml
+```
+
+**2. Remove the "example" rule and add the following rules**
+
+![Custom Detection Rules](https://github.com/aarondiggs/home-soc-lab/blob/main/images/Wazuh%20Custom%20Detection%20Rule%20Remote%20CLI.png)
+
+**3. Restart the Wazuh manager to apply the changes**
+
+```bash
+sudo systemctl restart wazuh-manager
+```
+
+**4. Verify the rules appear in the dashboard**
+
+Rules were verified by navigating to **Management -> Rules** in the Wazuh dashboard and filtering by custom rules. 
+
+![Wazuh Dashboard filtered for Custom Rules](https://github.com/aarondiggs/home-soc-lab/blob/main/images/Wazuh%20Dashboard%20Custom%20Rules.png)
+
+### Testing
+
+The brute force simulation from Section 6 was repeated from the Kali attacker machine to validate the new rules:
+
+```bash
+hydra -l ubuntuv -P /tmp/passwords.txt ssh://192.168.31.135 -t 1
+```
+
+### Results
+
+The custom rules fired as expected. The Threat Hunting dashboard showed the following event sequence:
+
+![Custom rules firing in Threat Hunting log](https://github.com/aarondiggs/home-soc-lab/blob/main/images/Wazuh%20Threat%20Hunting%20Custom%20Rule%20Firing.png)
+
+Rule 100002 fired at level 12 after 5 authentication failures were observed from the same source IP within the 30-second window, followed immediately by a successful authentication event (rule 5715) (confirming the full brute force and access sequence was detected.)
+
+---
+
+## Section 8: Windows Attack Simulations
