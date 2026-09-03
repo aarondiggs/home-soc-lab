@@ -488,4 +488,23 @@ Rule 100002 fired at level 12 after 5 authentication failures were observed from
 
 ---
 
-## Section 8: Windows Attack Simulations
+## Summary
+
+This project documents the design and implementation of a home SOC lab environment using open source tooling. A four-VM lab was provisioned in VMware Workstation Pro with Wazuh deployed as the central SIEM/XDR platform, aggregating telemetry from Linux and Windows endpoints enriched via Sysmon.
+
+Key outcomes:
+- Deployed and configured Wazuh
+- Enrolled Linux and Windows endpoints as Wazuh agents
+- Conducted vulnerability scans across both endpoints, triaging findings and documenting remediation and risk acceptance decisions
+- Simulated an SSH brute force attack from Kali Linux and observed detection through Wazuh's built-in ruleset
+- Identified a gap in built-in detection coverage and developed custom rules to address it, validated through a second attack simulation
+
+---
+
+## Lessons Learned
+
+**Vulnerability scanner output requires context.** Raw findings are not meaningful without triage (severity, exploitability, and patch availability all inform the decision to remediate or accept risk.) Scanner feed lag can also produce false positives for already-patched vulnerabilities, a limitation worth understanding in any vulnerability management workflow.
+
+**Detection gaps are expected.** The failure of Wazuh's built-in rule 5763 to fire against the low-and-slow brute force pattern was a realistic finding that led directly to a detection engineering exercise — the kind of continuous gap identification and remediation that defines real SOC work.
+
+**Troubleshooting is part of the process.** Several components required reconfiguration during the project. Documenting these challenges demonstrates realistic problem-solving ability.
